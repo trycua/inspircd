@@ -21,6 +21,25 @@ jobs:
         env:
           STRESS: '1'
         run: sh tools/wasi/verify.sh
+      - name: Record deployable artifact identity
+        run: |-
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          wasm = Path("build-wasi/src/inspircd.wasm")
+          manifest = {
+              "commit": os.environ["GITHUB_SHA"],
+              "artifact": wasm.name,
+              "sha256": hashlib.sha256(wasm.read_bytes()).hexdigest(),
+              "runtime": "WasmEdge 0.17.2-rc.1",
+              "qualified_scope": "experimental only; see tools/wasi/README.md",
+          }
+          Path("build-wasi/artifact.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          PY
       - name: Retain test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -29,6 +48,7 @@ jobs:
           path: |
             build-wasi/*.log
             build-wasi/*.json
+            build-wasi/src/inspircd.wasm
           retention-days: 7
 
   native:
