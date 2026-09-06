@@ -125,7 +125,7 @@ jobs:
             echo 'SIGTERM stopped the runtime task' | tee lifecycle.log
           else
             # WasmEdge guest execution is non-interruptible through this shim's
-            # signal path. Verify Kubernetes-equivalent grace expiry cleanup.
+            # signal path. Bound this local ctr cleanup and record forced stop.
             sudo ctr tasks list -q | grep -Fx inspircd-acceptance
             echo 'SIGTERM grace period expired; forcing SIGKILL cleanup' | tee lifecycle.log
             sudo ctr tasks kill -s SIGKILL inspircd-acceptance
@@ -143,6 +143,7 @@ jobs:
           trap 'sudo ctr tasks kill -s SIGKILL inspircd-restart 2>/dev/null || true; wait "$restart_runner" || true' EXIT
           for _ in $(seq 1 30); do python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",6667),1); s.close()' && break || sleep 1; done
           python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",6667),1); s.close()'
+          python3 tools/runtime/containerd_irc_acceptance.py | tee -a irc-acceptance.log
           sudo ctr tasks kill -s SIGKILL inspircd-restart
           timeout 15 bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done' _ "$restart_runner"
           wait "$restart_runner" || true
