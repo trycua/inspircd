@@ -44,6 +44,7 @@ Separate operations:
 ```sh
 sh tools/wasi/build.sh
 STRESS=1 python3 tools/wasi/test.py
+RESILIENCE_ROUNDS=6 python3 tools/wasi/test-resilience.py
 python3 tools/wasi/test-invalid-config.py
 sh tools/wasi/run.sh
 ```
@@ -91,14 +92,21 @@ Positive protocol requirements:
 4. Exact bidirectional channel PRIVMSG delivery.
 5. A message split across TCP writes and a peer PART.
 
-`STRESS=1` additionally requires Linux `/proc` and exercises three batches of 24
-registered clients (72 total), alternating abrupt disconnects and clean QUITs,
-PING/PONG to survivors after descriptor compaction, a 64 KiB unterminated input
-rejection, an unregistered connection timeout, and continued healthy-client
-service. The test checks host descriptors return to baseline (allowance two),
-RSS stays below 512 MiB and grows by less than 64 MiB, and a four-second idle
-window consumes less than two CPU seconds. These are short regression thresholds,
-NOT a demonstrated capacity limit, load SLA, sustained soak, or leak proof.
+`STRESS=1` additionally requires Linux `/proc` and exercises configurable batches
+of 24 registered clients (default three batches), alternating abrupt disconnects
+and clean QUITs, PING/PONG to survivors after descriptor compaction, a 64 KiB
+unterminated input rejection, six deterministic malformed IRC frames, an
+unregistered connection timeout, and continued healthy-client service. The test
+checks host descriptors return to baseline (allowance two), RSS stays below 512
+MiB and grows by less than 64 MiB, and a four-second idle window consumes less
+than two CPU seconds.
+
+`test-resilience.py` runs two full server lifecycles with six 24-client batches
+per lifecycle (288 registered churn clients total), and asserts the second clean
+host launch works after the first has been terminated by the harness. It writes
+`resilience.json` with timing and resource evidence. This is a bounded
+restart/input-resilience regression, NOT a soak test, crash recovery, OOM
+recovery, or a demonstrated capacity limit or load SLA.
 
 Negative cases require a normal nonzero exit and specific diagnostic, never a
 runtime trap: invalid server ID, malformed syntax, executable include, missing
@@ -110,7 +118,8 @@ Generated evidence (all ignored; never commit binaries, tools, or transient logs
 
 - `build-wasi/src/inspircd.wasm` and its SHA-256 in `acceptance.json`.
 - `build.log`, `tool-versions.log`, `exception-check.log`.
-- `wasmedge-server.log`, `irc-transcript.log`, `acceptance.json`, `stress.json`.
+- `wasmedge-server.log`, `irc-transcript.log`, `acceptance.json`, `stress.json`,
+  `resilience.json`.
 - `negative-*.log`, `negative-config.json`.
 
 The guest PID is wasi-libc's emulated 42, not the host PID. Use `/proc` evidence.
@@ -167,16 +176,19 @@ IPv6 conversion exists but is unqualified; no IPv6 deployment claim is made.
    evidence. Reconfirm license/provenance and integrity pins for tool upgrades.
 2. **Runtime:** supported stable WasmEdge containing both exception fixes; full
    probes/config regressions repeated on every supported runtime/architecture.
-   Current RC is a development dependency, not a production recommendation.
+   As checked on 2026-09-06, WasmEdge's latest stable release is 0.17.1 and
+   0.17.2-rc.1 remains a prerelease. The current RC is a development dependency,
+   not a production recommendation.
 3. **Native compatibility:** terminal native poll/epoll results and applicable
    upstream irctest suite. Add sanitizer-backed adapter/descriptor tests.
 4. **Error paths:** unavailable modules/options, failed binds, descriptor
    saturation/reuse, OOM/resource exhaustion, invalid rehash preserving live
    configuration, valid rehash, and recovery after each fault.
 5. **Capacity/security:** sustained realistic concurrency/traffic and reconnect
-   soak; slow readers/writers, sendq/flood controls, malformed/fuzzed IRC input,
-   latency/CPU/RSS/FD measurements and declared workload envelope. The short
-   churn test does not satisfy this gate.
+   soak; slow readers/writers, sendq/flood controls, coverage-guided malformed
+   IRC input fuzzing, latency/CPU/RSS/FD measurements and declared workload
+   envelope. The bounded churn/malformed/restart regression does not satisfy
+   this gate.
 6. **Operational security:** reviewed host isolation, dedicated unprivileged
    user/container, explicit network policy, host CPU/memory/PID/FD/log quotas,
    read-only binaries, protected configuration, restart policy/backoff, logging,

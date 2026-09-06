@@ -31,5 +31,5 @@ cat "$BUILD/exception-check.log"
   -o "$BUILD/check-casemap.wasm"
 timeout 30 "$TOOLS/bin/wasmedge" "$BUILD/check-casemap.wasm" > "$BUILD/casemap-check.log" 2>&1
 cat "$BUILD/casemap-check.log"
-python3 "$ROOT/tools/wasi/test.py"
+python3 "$ROOT/tools/wasi/test-resilience.py"
 python3 "$ROOT/tools/wasi/test-invalid-config.py"

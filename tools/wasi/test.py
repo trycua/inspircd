@@ -165,9 +165,11 @@ try:
                 record(f"{client.nick} << {text.rstrip()}")
                 assert expected in text, (expected, text)
 
+        rounds = int(os.environ.get("STRESS_ROUNDS", "3"))
+        assert 1 <= rounds <= 12, "STRESS_ROUNDS must be between 1 and 12"
         before = sample()
         peaks = [before]
-        for round_id in range(3):
+        for round_id in range(rounds):
             batch = []
             for index in range(24):
                 client = Client(f"c{round_id}_{index}")
@@ -192,6 +194,24 @@ try:
         oversized.sock.sendall(b"X" * 65536)
         closed(oversized, "RecvQ exceeded")
         oversized.sock.close()
+        # Deterministic malformed frames must not take down established clients.
+        malformed = Client("malformed")
+        clients.append(malformed)
+        malformed_frames = (
+            b"\0\r\n",
+            b"@\xff\r\n",
+            b":prefix\r\n",
+            b"PRIVMSG\r\n",
+            b"NICK " + b"n" * 1024 + b"\r\n",
+            b"USER malformed 0 * :" + b"x" * 4096 + b"\r\n",
+        )
+        for frame in malformed_frames:
+            malformed.sock.sendall(frame)
+        time.sleep(0.2)
+        assert server.poll() is None, "server exited on malformed IRC input"
+        malformed.sock.close()
+        record(f"Malformed corpus survived: {len(malformed_frames)} deterministic frames")
+        ping(alice, "after-malformed")
         idle = Client("unregistered")
         clients.append(idle)
         closed(idle, "Connection timeout")
@@ -205,10 +225,11 @@ try:
         assert after["rss_kib"] - before["rss_kib"] < 64 * 1024, (before, after)
         assert after["cpu_ticks"] - start_idle["cpu_ticks"] < 2 * os.sysconf("SC_CLK_TCK"), (start_idle, after)
         ping(alice, "after-idle")
-        stress_evidence = {"passed": True, "rounds": 3, "clients_per_round": 24,
+        stress_evidence = {"passed": True, "rounds": rounds, "clients_per_round": 24,
                            "before": before, "after": after, "peaks": peaks,
-                           "idle_seconds": 4, "idle_start": start_idle}
-        record("PASS: 72-client churn; gap-fill survivors; oversized input rejection; registration timeout; idle CPU/RSS/fd bounds")
+                           "idle_seconds": 4, "idle_start": start_idle,
+                           "malformed_frames": len(malformed_frames)}
+        record("PASS: churn; gap-fill survivors; oversized and malformed input handling; registration timeout; idle CPU/RSS/fd bounds")
     passed = True
     record("PASS: registration 001-004 for both; JOIN and NAMES membership; bidirectional channel PRIVMSG; fragmented command; PART")
 finally:
