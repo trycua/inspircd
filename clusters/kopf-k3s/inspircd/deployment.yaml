@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inspircd-wasi
+  namespace: gvisor-dev
+  labels:
+    app.kubernetes.io/name: inspircd-wasi
+    app.kubernetes.io/part-of: inspircd-wasi-experiment
+  annotations:
+    inspircd.trycua.ai/status: "disabled pending a verified WasmEdge 0.17.2-rc.1 handler and immutable OCI digest"
+spec:
+  # Keep the rendered canary inert until the runtime and OCI digest gates pass.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inspircd-wasi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inspircd-wasi
+        app.kubernetes.io/part-of: inspircd-wasi-experiment
+    spec:
+      runtimeClassName: wasmedge-cua
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inspircd
+          # Replaced only with an OCI digest and matching WASM SHA-256.
+          image: registry.invalid/trycua/inspircd@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          args: ["--nofork", "--config", "/irc/inspircd.conf"]
+          ports:
+            - name: irc
+              containerPort: 6667
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: runtime
+              mountPath: /irc
+            - name: config
+              mountPath: /irc/inspircd.conf
+              subPath: inspircd.conf
+              readOnly: true
+      volumes:
+        - name: runtime
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: inspircd-wasi-config

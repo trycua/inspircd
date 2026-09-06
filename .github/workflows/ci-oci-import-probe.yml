@@ -1,0 +1,102 @@
+name: Probe OCI import naming
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ci-oci-import-probe.yml'
+      - 'tools/runtime/oci-import-probe/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up isolated Buildx builder
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build small OCI layouts with documented name variants
+        run: |
+          set -euxo pipefail
+          docker buildx build --file tools/runtime/oci-import-probe/Dockerfile --output type=oci,dest=/tmp/unnamed.oci.tar tools/runtime/oci-import-probe
+          docker buildx build --file tools/runtime/oci-import-probe/Dockerfile --output type=oci,name=probe/inspircd:latest,dest=/tmp/named.oci.tar tools/runtime/oci-import-probe
+      - name: Add a spec-defined descriptor reference variant
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import io
+          import json
+          import tarfile
+
+          source = "/tmp/unnamed.oci.tar"
+          destination = "/tmp/ref-name-latest.oci.tar"
+          with tarfile.open(source) as incoming, tarfile.open(destination, "w") as outgoing:
+              for member in incoming:
+                  content = incoming.extractfile(member) if member.isfile() else None
+                  if member.name == "index.json":
+                      index = json.load(content)
+                      descriptor = index["manifests"][0]
+                      descriptor.setdefault("annotations", {})["org.opencontainers.image.ref.name"] = "latest"
+                      payload = json.dumps(index, separators=(",", ":")).encode()
+                      member.size = len(payload)
+                      outgoing.addfile(member, io.BytesIO(payload))
+                  elif content is None:
+                      outgoing.addfile(member)
+                  else:
+                      outgoing.addfile(member, content)
+          PY
+      - name: Inspect layouts and containerd import results
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import tarfile
+
+          reports = []
+          for variant in ("unnamed", "named", "ref-name-latest"):
+              archive_path = f"/tmp/{variant}.oci.tar"
+              with tarfile.open(archive_path) as archive:
+                  index = json.load(archive.extractfile("index.json"))
+                  descriptor = index["manifests"][0]
+                  blobs = sorted(member.name for member in archive if member.name.startswith("blobs/sha256/"))
+              namespace = f"oci-probe-{variant}"
+              imported = subprocess.run(
+                  ["sudo", "ctr", "--namespace", namespace, "images", "import", "--base-name", "probe/inspircd", archive_path],
+                  text=True,
+                  capture_output=True,
+              )
+              listed = subprocess.run(
+                  ["sudo", "ctr", "--namespace", namespace, "images", "list", "-q"],
+                  text=True,
+                  check=True,
+                  capture_output=True,
+              )
+              reports.append({
+                  "variant": variant,
+                  "descriptor_annotations": descriptor.get("annotations", {}),
+                  "blob_digests": blobs,
+                  "import_exit_code": imported.returncode,
+                  "import_stdout": imported.stdout,
+                  "import_stderr": imported.stderr,
+                  "imported_images": listed.stdout.splitlines(),
+              })
+          # Changing index.json must not alter any content-addressed image blob.
+          assert reports[0]["blob_digests"] == reports[2]["blob_digests"]
+          with open("oci-import-probe.json", "w") as report:
+              json.dump(reports, report, indent=2, sort_keys=True)
+          print(json.dumps(reports, indent=2, sort_keys=True))
+          PY
+      - name: Retain OCI probe evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: oci-import-probe
+          path: |
+            oci-import-probe.json
+            /tmp/unnamed.oci.tar
+            /tmp/named.oci.tar
+            /tmp/ref-name-latest.oci.tar
+          retention-days: 7

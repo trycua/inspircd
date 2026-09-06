@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inspircd-wasi-config
+  namespace: gvisor-dev
+  labels:
+    app.kubernetes.io/name: inspircd-wasi
+    app.kubernetes.io/part-of: inspircd-wasi-experiment
+data:
+  inspircd.conf: |
+    <server name="irc.wasi.test" id="001" description="Experimental InspIRCd on WasmEdge" network="WASI">
+    <admin name="WASI experiment" email="ops@example.invalid">
+    <bind address="127.0.0.1" port="6667" type="clients">
+    <connect name="port-forward-only" allow="127.0.0.1" resolvehostnames="no" timeout="3" pingfreq="60" localmax="128" globalmax="128" recvq="4096" hardsendq="65536" softsendq="8192">
+    <path configdir="/irc" datadir="/irc" logdir="/irc" moduledir="/irc" runtimedir="/irc">
+    <options nosnoticestack="yes">
