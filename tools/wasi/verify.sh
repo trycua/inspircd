@@ -33,3 +33,4 @@ timeout 30 "$TOOLS/bin/wasmedge" "$BUILD/check-casemap.wasm" > "$BUILD/casemap-c
 cat "$BUILD/casemap-check.log"
 python3 "$ROOT/tools/wasi/test-resilience.py"
 python3 "$ROOT/tools/wasi/test-invalid-config.py"
+python3 "$ROOT/tools/wasi/test-operations.py"

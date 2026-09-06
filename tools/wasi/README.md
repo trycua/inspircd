@@ -46,6 +46,7 @@ sh tools/wasi/build.sh
 STRESS=1 python3 tools/wasi/test.py
 RESILIENCE_ROUNDS=6 python3 tools/wasi/test-resilience.py
 python3 tools/wasi/test-invalid-config.py
+python3 tools/wasi/test-operations.py
 sh tools/wasi/run.sh
 ```
 
@@ -108,6 +109,16 @@ host launch works after the first has been terminated by the harness. It writes
 restart/input-resilience regression, NOT a soak test, crash recovery, OOM
 recovery, or a demonstrated capacity limit or load SLA.
 
+`test-operations.py` uses isolated loopback subprocesses to require: an occupied
+ephemeral-port bind reports a clean diagnostic without a Wasm trap; a
+`localmax=2` server refuses a third connection while serving an existing client;
+a non-reading client is left behind while an observer receives 256 430-byte
+channel messages and healthy peers remain responsive; and an invalid then
+restored valid `/REHASH` leaves the server serving existing clients. It never
+raises host-wide file-descriptor or memory limits. These are specific admission,
+liveness, and preservation checks, not handler-cap saturation, a network-scale
+backpressure test, or crash/OOM recovery evidence.
+
 Negative cases require a normal nonzero exit and specific diagnostic, never a
 runtime trap: invalid server ID, malformed syntax, executable include, missing
 include, duplicate oper class, recursive include, guest privilege dropping, TLS profiles,
@@ -120,7 +131,8 @@ Generated evidence (all ignored; never commit binaries, tools, or transient logs
 - `build.log`, `tool-versions.log`, `exception-check.log`.
 - `wasmedge-server.log`, `irc-transcript.log`, `acceptance.json`, `stress.json`,
   `resilience.json`.
-- `negative-*.log`, `negative-config.json`.
+- `negative-*.log`, `negative-config.json`, `operations.json`,
+  `wasmedge-operations.log`.
 
 The guest PID is wasi-libc's emulated 42, not the host PID. Use `/proc` evidence.
 The optional `NATIVE_PREFIX` test mode runs an installed native server instead;
@@ -183,7 +195,10 @@ IPv6 conversion exists but is unqualified; no IPv6 deployment claim is made.
    upstream irctest suite. Add sanitizer-backed adapter/descriptor tests.
 4. **Error paths:** unavailable modules/options, failed binds, descriptor
    saturation/reuse, OOM/resource exhaustion, invalid rehash preserving live
-   configuration, valid rehash, and recovery after each fault.
+   configuration, valid rehash, and recovery after each fault. The loopback
+   regressions cover one occupied bind, a `localmax` admission refusal, a
+   bounded send-queue refusal, and invalid/valid rehash liveness; handler-cap
+   saturation, OOM, and crash/runtime recovery remain unqualified.
 5. **Capacity/security:** sustained realistic concurrency/traffic and reconnect
    soak; slow readers/writers, sendq/flood controls, coverage-guided malformed
    IRC input fuzzing, latency/CPU/RSS/FD measurements and declared workload
