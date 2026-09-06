@@ -30,15 +30,15 @@ jobs:
       - name: Fetch and patch the official WasmEdge Rust SDK
         run: |
           set -euxo pipefail
-          git clone --depth=1 --branch 0.14.0 https://github.com/WasmEdge/WasmEdge-rust-sdk.git runwasi/wasmedge-rust-sdk
-          test "$(git -C runwasi/wasmedge-rust-sdk rev-parse HEAD)" = e7a74ab1837c43f609f26510cf3c456e9b9c2026
-          git -C runwasi/wasmedge-rust-sdk apply "$GITHUB_WORKSPACE/tools/runtime/patches/wasmedge-rust-sdk-0.14.0-wasmedge-0.17.2-rc.1.patch"
+          git clone --depth=1 --branch 0.14.0 https://github.com/WasmEdge/WasmEdge-rust-sdk.git wasmedge-rust-sdk
+          test "$(git -C wasmedge-rust-sdk rev-parse HEAD)" = e7a74ab1837c43f609f26510cf3c456e9b9c2026
+          git -C wasmedge-rust-sdk apply "$GITHUB_WORKSPACE/tools/runtime/patches/wasmedge-rust-sdk-0.14.0-wasmedge-0.17.2-rc.1.patch"
           python3 - <<'PY'
           from pathlib import Path
           path = Path("runwasi/crates/containerd-shim-wasmedge/Cargo.toml")
           source = path.read_text()
           old = 'wasmedge-sdk = { version = "0.14.0", default-features = false }'
-          new = 'wasmedge-sdk = { path = "../../wasmedge-rust-sdk", default-features = false }'
+          new = 'wasmedge-sdk = { path = "../../../wasmedge-rust-sdk", default-features = false }'
           assert old in source
           path.write_text(source.replace(old, new))
           PY
