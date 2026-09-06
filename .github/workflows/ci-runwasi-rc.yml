@@ -86,10 +86,11 @@ jobs:
           sudo ln -sf libwasmedge.so.0.1.1 /usr/local/lib/libwasmedge.so.0
           sudo ldconfig
           sudo ctr version
+          sudo ctr images list -q | sort > /tmp/containerd-images-before-import
           sudo ctr images import --base-name local/inspircd /tmp/inspircd-wasi.oci.tar
-          imported_image="$(sudo ctr images list -q | awk '/^local\/inspircd@sha256:/ { print; exit }')"
-          test -n "$imported_image"
-          sudo ctr images tag "$imported_image" local/inspircd:latest
+          mapfile -t imported_images < <(comm -13 /tmp/containerd-images-before-import <(sudo ctr images list -q | sort))
+          test "${#imported_images[@]}" -eq 1
+          sudo ctr images tag "${imported_images[0]}" local/inspircd:latest
           sudo ctr images list -q | grep -Fx local/inspircd:latest
       - name: Exercise OCI lifecycle, invalid configuration, and two IRC clients
         run: |
