@@ -6,6 +6,8 @@ on:
       - '.github/workflows/ci-runwasi-rc.yml'
       - 'tools/wasi/toolchain.json'
       - 'tools/runtime/**'
+      - 'Dockerfile.wasi'
+      - 'clusters/kopf-k3s/inspircd/configmap.yaml'
   workflow_dispatch: {}
 
 permissions:
@@ -14,7 +16,7 @@ permissions:
 jobs:
   build-shim:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Bootstrap the checksum-pinned WasmEdge RC
@@ -59,6 +61,45 @@ jobs:
           ldd "$candidate" | tee runwasi-ldd.log
           grep -F "$WASMEDGE_DIR/lib64/libwasmedge.so.0" runwasi-ldd.log
           test "$(readlink -f "$WASMEDGE_DIR/lib64/libwasmedge.so.0")" = "$WASMEDGE_DIR/lib64/libwasmedge.so.0.1.1"
+      - name: Build the validated InspIRCd OCI layout
+        env:
+          STRESS: '1'
+        run: |
+          set -euxo pipefail
+          sh tools/wasi/verify.sh
+          docker buildx build --file Dockerfile.wasi --output type=oci,dest=/tmp/inspircd-wasi.oci.tar .
+          sha256sum "$candidate" /tmp/inspircd-wasi.oci.tar | tee runtime-artifact.sha256
+      - name: Install the isolated runtime handler into the runner containerd
+        env:
+          WASMEDGE_DIR: ${{ github.workspace }}/.wasi-tools
+        run: |
+          set -euxo pipefail
+          sudo install -m 0755 "$candidate" /usr/local/bin/containerd-shim-wasmedge-v1
+          sudo install -m 0755 "$WASMEDGE_DIR/lib64/libwasmedge.so.0.1.1" /usr/local/lib/libwasmedge.so.0.1.1
+          sudo ln -sf libwasmedge.so.0.1.1 /usr/local/lib/libwasmedge.so.0
+          sudo ldconfig
+          sudo ctr version
+          sudo ctr images import --base-name local/inspircd /tmp/inspircd-wasi.oci.tar
+      - name: Exercise OCI lifecycle, invalid configuration, and two IRC clients
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/inspircd-irc
+          sed -n '/^  inspircd.conf: |$/,$p' clusters/kopf-k3s/inspircd/configmap.yaml | sed '1d;s/^    //' > /tmp/inspircd-irc/inspircd.conf
+          test -s /tmp/inspircd-irc/inspircd.conf
+          mkdir -p /tmp/inspircd-invalid
+          printf '<server\n' > /tmp/inspircd-invalid/inspircd.conf
+          if timeout 20 sudo ctr run --rm --net-host --runtime=io.containerd.wasmedge.v1 --mount type=bind,src=/tmp/inspircd-invalid,dst=/irc,options=rbind:rw local/inspircd:latest invalid-config; then
+            echo 'invalid config unexpectedly started' >&2
+            exit 1
+          fi
+          sudo ctr run --net-host --runtime=io.containerd.wasmedge.v1 --mount type=bind,src=/tmp/inspircd-irc,dst=/irc,options=rbind:rw local/inspircd:latest inspircd-acceptance > inspircd-containerd.log 2>&1 &
+          runner=$!
+          trap 'sudo ctr tasks kill -s SIGKILL inspircd-acceptance 2>/dev/null || true; wait "$runner" || true' EXIT
+          for _ in $(seq 1 30); do python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",6667),1); s.close()' && break || sleep 1; done
+          python3 tools/runtime/containerd_irc_acceptance.py | tee irc-acceptance.log
+          sudo ctr tasks kill -s SIGTERM inspircd-acceptance
+          wait "$runner"
+          trap - EXIT
       - name: Retain shim build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -67,6 +108,9 @@ jobs:
           path: |
             runwasi-build.log
             runwasi-ldd.log
+            runtime-artifact.sha256
+            inspircd-containerd.log
+            irc-acceptance.log
             runwasi/target/release/containerd-shim-wasmedge-v1
           if-no-files-found: warn
           retention-days: 7
