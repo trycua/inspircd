@@ -32,7 +32,7 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/.wasi-tools/lib64
         run: |
           set -euxo pipefail
-          cargo --manifest-path runwasi/Cargo.toml build --release -p containerd-shim-wasmedge --no-default-features 2>&1 | tee runwasi-build.log
+          cargo build --manifest-path runwasi/Cargo.toml --release -p containerd-shim-wasmedge --no-default-features 2>&1 | tee runwasi-build.log
           candidate=runwasi/target/release/containerd-shim-wasmedge-v1
           test -x "$candidate"
           ldd "$candidate" | tee runwasi-ldd.log
