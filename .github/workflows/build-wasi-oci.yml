@@ -104,16 +104,6 @@ jobs:
           file: Dockerfile.wasi
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/inspircd:${{ github.sha }}
-      - name: Make this package public
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            await github.request('PATCH /orgs/{org}/packages/{package_type}/{package_name}', {
-              org: context.repo.owner,
-              package_type: 'container',
-              package_name: 'inspircd',
-              visibility: 'public',
-            });
       - name: Record immutable image digest
         run: |
           set -eu
@@ -121,3 +111,54 @@ jobs:
           printf 'image=ghcr.io/%s/inspircd@%s\n' '${{ github.repository_owner }}' '${{ steps.publish.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
           printf 'wasm_sha256=' >> "$GITHUB_STEP_SUMMARY"
           cat build-wasi/inspircd.wasm.sha256 >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify public package metadata and anonymous OCI access
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const response = await github.request('GET /orgs/{org}/packages/{package_type}/{package_name}', {
+              org: context.repo.owner,
+              package_type: 'container',
+              package_name: 'inspircd',
+            });
+            if (response.data.visibility !== 'public') {
+              core.setFailed(`expected public package visibility, got ${response.data.visibility}`);
+            }
+      - name: Verify anonymous OCI manifest access
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/inspircd
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          image = os.environ["IMAGE"]
+          digest = os.environ["DIGEST"]
+          repository = image.removeprefix("ghcr.io/")
+          manifest_url = f"https://ghcr.io/v2/{repository}/manifests/{digest}"
+          request = urllib.request.Request(manifest_url, headers={"Accept": "application/vnd.oci.image.index.v1+json"})
+          try:
+              urllib.request.urlopen(request)
+          except urllib.error.HTTPError as error:
+              if error.code != 401:
+                  raise
+              challenge = error.headers["WWW-Authenticate"]
+          else:
+              raise SystemExit("registry did not issue the expected Bearer challenge")
+          parameters = dict(item.split("=", 1) for item in challenge.removeprefix("Bearer ").split(", "))
+          token_url = parameters["realm"].strip('"') + "?" + urllib.parse.urlencode({
+              "service": parameters["service"].strip('"'),
+              "scope": parameters["scope"].strip('"'),
+          })
+          with urllib.request.urlopen(token_url) as response:
+              token = json.load(response)["token"]
+          authenticated = urllib.request.Request(manifest_url, headers={
+              "Accept": "application/vnd.oci.image.index.v1+json",
+              "Authorization": f"Bearer {token}",
+          })
+          with urllib.request.urlopen(authenticated) as response:
+              assert response.status == 200
+          PY
