@@ -17,6 +17,8 @@ jobs:
   build-shim:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      CANDIDATE: runwasi/target/release/containerd-shim-wasmedge-v1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Bootstrap the checksum-pinned WasmEdge RC
@@ -56,9 +58,8 @@ jobs:
         run: |
           set -euxo pipefail
           cargo build --manifest-path runwasi/Cargo.toml --release -p containerd-shim-wasmedge --no-default-features 2>&1 | tee runwasi-build.log
-          candidate=runwasi/target/release/containerd-shim-wasmedge-v1
-          test -x "$candidate"
-          ldd "$candidate" | tee runwasi-ldd.log
+          test -x "$CANDIDATE"
+          ldd "$CANDIDATE" | tee runwasi-ldd.log
           grep -F "$WASMEDGE_DIR/lib64/libwasmedge.so.0" runwasi-ldd.log
           test "$(readlink -f "$WASMEDGE_DIR/lib64/libwasmedge.so.0")" = "$WASMEDGE_DIR/lib64/libwasmedge.so.0.1.1"
       - name: Set up isolated Buildx builder
@@ -70,13 +71,17 @@ jobs:
           set -euxo pipefail
           sh tools/wasi/verify.sh
           docker buildx build --file Dockerfile.wasi --output type=oci,dest=/tmp/inspircd-wasi.oci.tar .
-          sha256sum "$candidate" /tmp/inspircd-wasi.oci.tar | tee runtime-artifact.sha256
+          test -x "$CANDIDATE"
+          test -s /tmp/inspircd-wasi.oci.tar
+          sha256sum "$CANDIDATE" /tmp/inspircd-wasi.oci.tar | tee runtime-artifact.sha256
       - name: Install the isolated runtime handler into the runner containerd
         env:
           WASMEDGE_DIR: ${{ github.workspace }}/.wasi-tools
         run: |
           set -euxo pipefail
-          sudo install -m 0755 "$candidate" /usr/local/bin/containerd-shim-wasmedge-v1
+          test -x "$CANDIDATE"
+          test -s /tmp/inspircd-wasi.oci.tar
+          sudo install -m 0755 "$CANDIDATE" /usr/local/bin/containerd-shim-wasmedge-v1
           sudo install -m 0755 "$WASMEDGE_DIR/lib64/libwasmedge.so.0.1.1" /usr/local/lib/libwasmedge.so.0.1.1
           sudo ln -sf libwasmedge.so.0.1.1 /usr/local/lib/libwasmedge.so.0
           sudo ldconfig
