@@ -51,7 +51,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.wasi
-          outputs: type=oci,dest=/tmp/inspircd-wasi.oci.tar
+          outputs: type=oci,name=local/inspircd:latest,dest=/tmp/inspircd-wasi.oci.tar
       - name: Retain deployable artifact evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

@@ -70,7 +70,18 @@ jobs:
         run: |
           set -euxo pipefail
           sh tools/wasi/verify.sh
-          docker buildx build --file Dockerfile.wasi --output type=oci,dest=/tmp/inspircd-wasi.oci.tar .
+          docker buildx build --file Dockerfile.wasi --output type=oci,name=local/inspircd:latest,dest=/tmp/inspircd-wasi.oci.tar .
+          python3 - /tmp/inspircd-wasi.oci.tar <<'PY'
+          import json
+          import tarfile
+          import sys
+
+          with tarfile.open(sys.argv[1]) as archive:
+              index = json.load(archive.extractfile("index.json"))
+          manifests = index["manifests"]
+          assert len(manifests) == 1
+          assert manifests[0]["annotations"]["org.opencontainers.image.ref.name"] == "local/inspircd:latest"
+          PY
           test -x "$CANDIDATE"
           test -s /tmp/inspircd-wasi.oci.tar
           sha256sum "$CANDIDATE" /tmp/inspircd-wasi.oci.tar | tee runtime-artifact.sha256
@@ -86,11 +97,7 @@ jobs:
           sudo ln -sf libwasmedge.so.0.1.1 /usr/local/lib/libwasmedge.so.0
           sudo ldconfig
           sudo ctr version
-          sudo ctr images list -q | sort > /tmp/containerd-images-before-import
-          sudo ctr images import --base-name local/inspircd /tmp/inspircd-wasi.oci.tar
-          mapfile -t imported_images < <(comm -13 /tmp/containerd-images-before-import <(sudo ctr images list -q | sort))
-          test "${#imported_images[@]}" -eq 1
-          sudo ctr images tag "${imported_images[0]}" local/inspircd:latest
+          sudo ctr images import /tmp/inspircd-wasi.oci.tar
           sudo ctr images list -q | grep -Fx local/inspircd:latest
       - name: Exercise OCI lifecycle, invalid configuration, and two IRC clients
         run: |
