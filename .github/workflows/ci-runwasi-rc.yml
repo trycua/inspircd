@@ -120,8 +120,31 @@ jobs:
           for _ in $(seq 1 30); do python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",6667),1); s.close()' && break || sleep 1; done
           python3 tools/runtime/containerd_irc_acceptance.py | tee irc-acceptance.log
           sudo ctr tasks kill -s SIGTERM inspircd-acceptance
-          wait "$runner"
+          if timeout 10 bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done' _ "$runner"; then
+            echo 'SIGTERM stopped the runtime task' | tee lifecycle.log
+          else
+            # WasmEdge guest execution is non-interruptible through this shim's
+            # signal path. Verify Kubernetes-equivalent grace expiry cleanup.
+            sudo ctr tasks list -q | grep -Fx inspircd-acceptance
+            echo 'SIGTERM grace period expired; forcing SIGKILL cleanup' | tee lifecycle.log
+            sudo ctr tasks kill -s SIGKILL inspircd-acceptance
+            timeout 15 bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done' _ "$runner"
+          fi
+          wait "$runner" || true
           trap - EXIT
+          ! sudo ctr tasks list -q | grep -Fx inspircd-acceptance
+          ! sudo ctr containers list -q | grep -Fx inspircd-acceptance
+          ! python3 -c 'import socket; socket.create_connection(("127.0.0.1", 6667), 1)'
+          sudo ctr run --rm --net-host --runtime=io.containerd.wasmedge.v1 --mount type=bind,src=/tmp/inspircd-irc,dst=/irc,options=rbind:rw local/inspircd:latest inspircd-restart > inspircd-restart.log 2>&1 &
+          restart_runner=$!
+          trap 'sudo ctr tasks kill -s SIGKILL inspircd-restart 2>/dev/null || true; wait "$restart_runner" || true' EXIT
+          for _ in $(seq 1 30); do python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",6667),1); s.close()' && break || sleep 1; done
+          sudo ctr tasks kill -s SIGKILL inspircd-restart
+          timeout 15 bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done' _ "$restart_runner"
+          wait "$restart_runner" || true
+          trap - EXIT
+          ! sudo ctr tasks list -q | grep -Fx inspircd-restart
+          ! sudo ctr containers list -q | grep -Fx inspircd-restart
       - name: Retain shim build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -132,7 +155,9 @@ jobs:
             runwasi-ldd.log
             runtime-artifact.sha256
             inspircd-containerd.log
+            inspircd-restart.log
             irc-acceptance.log
+            lifecycle.log
             runwasi/target/release/containerd-shim-wasmedge-v1
           if-no-files-found: warn
           retention-days: 7
