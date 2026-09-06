@@ -1,0 +1,50 @@
+name: Validate runwasi against pinned WasmEdge RC
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ci-runwasi-rc.yml'
+      - 'tools/wasi/toolchain.json'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-shim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Bootstrap the checksum-pinned WasmEdge RC
+        run: python3 tools/wasi/bootstrap.py
+      - name: Fetch pinned runwasi source
+        run: |
+          set -eu
+          git init runwasi
+          git -C runwasi remote add origin https://github.com/containerd/runwasi.git
+          git -C runwasi fetch --depth=1 origin 5a8fc8e9ee0df28b0485da7419ee74c72127dfba
+          git -C runwasi checkout --detach FETCH_HEAD
+          test "$(git -C runwasi rev-parse HEAD)" = 5a8fc8e9ee0df28b0485da7419ee74c72127dfba
+      - name: Build dynamic shim against exactly the pinned RC
+        env:
+          WASMEDGE_DIR: ${{ github.workspace }}/.wasi-tools
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.wasi-tools/lib64
+        run: |
+          set -euxo pipefail
+          cargo --manifest-path runwasi/Cargo.toml build --release -p containerd-shim-wasmedge --no-default-features 2>&1 | tee runwasi-build.log
+          candidate=runwasi/target/release/containerd-shim-wasmedge-v1
+          test -x "$candidate"
+          ldd "$candidate" | tee runwasi-ldd.log
+          grep -F 'libwasmedge.so.0.1.1' runwasi-ldd.log
+      - name: Retain shim build evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runwasi-wasmedge-0.17.2-rc.1-evidence
+          path: |
+            runwasi-build.log
+            runwasi-ldd.log
+            runwasi/target/release/containerd-shim-wasmedge-v1
+          if-no-files-found: warn
+          retention-days: 7
