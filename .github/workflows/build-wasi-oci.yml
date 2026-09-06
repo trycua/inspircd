@@ -108,10 +108,10 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            await github.rest.packages.updatePackageForOrg({
+            await github.request('PATCH /orgs/{org}/packages/{package_type}/{package_name}', {
+              org: context.repo.owner,
               package_type: 'container',
               package_name: 'inspircd',
-              org: context.repo.owner,
               visibility: 'public',
             });
       - name: Record immutable image digest
