@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inspircd-wasi
+  namespace: gvisor-dev
+  labels:
+    app.kubernetes.io/name: inspircd-wasi
+    app.kubernetes.io/part-of: inspircd-wasi-experiment
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: inspircd-wasi
+  ports:
+    - name: irc
+      port: 6667
+      protocol: TCP
+      targetPort: irc

@@ -1,0 +1,8 @@
+# This image contains only the WASI command module. The host-selected runwasi
+# handler supplies WasmEdge; do not add a native fallback runtime here.
+FROM scratch
+
+COPY build-wasi/src/inspircd.wasm /inspircd.wasm
+
+ENTRYPOINT ["/inspircd.wasm"]
+CMD ["--nofork", "--config", "/irc/inspircd.conf"]

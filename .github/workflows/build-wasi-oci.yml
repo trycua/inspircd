@@ -1,0 +1,47 @@
+name: Build WASI OCI artifact
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Dockerfile.wasi'
+      - '.github/workflows/build-wasi-oci.yml'
+      - 'CMakeLists.txt'
+      - 'include/**'
+      - 'modules/**'
+      - 'src/**'
+      - 'tools/wasi/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Bootstrap digest-pinned tools
+        run: python3 tools/wasi/bootstrap.py
+      - name: Build the qualified command module
+        run: sh tools/wasi/build.sh
+      - name: Verify the WebAssembly module identity
+        run: |
+          set -eu
+          test "$(head -c 8 build-wasi/src/inspircd.wasm | od -An -t x1 | tr -d ' \n')" = 0061736d01000000
+          sha256sum build-wasi/src/inspircd.wasm | tee build-wasi/inspircd.wasm.sha256
+      - name: Build OCI layout without publishing
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          file: Dockerfile.wasi
+          outputs: type=oci,dest=/tmp/inspircd-wasi.oci.tar
+      - name: Retain deployable artifact evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspircd-wasi-oci
+          path: |
+            /tmp/inspircd-wasi.oci.tar
+            build-wasi/inspircd.wasm.sha256
+          retention-days: 7
