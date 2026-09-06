@@ -25,8 +25,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Bootstrap digest-pinned tools
         run: python3 tools/wasi/bootstrap.py
-      - name: Build the qualified command module
-        run: sh tools/wasi/build.sh
+      # Publish only the exact module that passed the full local WASI suite.
+      # verify.sh builds build-wasi/src/inspircd.wasm before exercising it.
+      - name: Build and fully validate the command module
+        env:
+          STRESS: '1'
+        run: sh tools/wasi/verify.sh
       - name: Verify the WebAssembly module identity
         run: |
           set -eu
