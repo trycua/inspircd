@@ -87,6 +87,10 @@ jobs:
           sudo ldconfig
           sudo ctr version
           sudo ctr images import --base-name local/inspircd /tmp/inspircd-wasi.oci.tar
+          imported_image="$(sudo ctr images list -q | awk '/^local\/inspircd@sha256:/ { print; exit }')"
+          test -n "$imported_image"
+          sudo ctr images tag "$imported_image" local/inspircd:latest
+          sudo ctr images list -q | grep -Fx local/inspircd:latest
       - name: Exercise OCI lifecycle, invalid configuration, and two IRC clients
         run: |
           set -euxo pipefail
