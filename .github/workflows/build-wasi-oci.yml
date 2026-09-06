@@ -11,14 +11,22 @@ on:
       - 'modules/**'
       - 'src/**'
       - 'tools/wasi/**'
+  pull_request:
+    paths:
+      - 'Dockerfile.wasi'
+      - '.github/workflows/build-wasi-oci.yml'
+      - 'CMakeLists.txt'
+      - 'include/**'
+      - 'modules/**'
+      - 'src/**'
+      - 'tools/wasi/**'
   workflow_dispatch: {}
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  package:
+  validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -37,14 +45,44 @@ jobs:
           test "$(head -c 8 build-wasi/src/inspircd.wasm | od -An -t x1 | tr -d ' \n')" = 0061736d01000000
           sha256sum build-wasi/src/inspircd.wasm | tee build-wasi/inspircd.wasm.sha256
       - name: Build OCI layout without publishing
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: Dockerfile.wasi
           outputs: type=oci,dest=/tmp/inspircd-wasi.oci.tar
+      - name: Retain deployable artifact evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspircd-wasi-oci
+          path: |
+            /tmp/inspircd-wasi.oci.tar
+            build-wasi/inspircd.wasm.sha256
+          retention-days: 7
+
+  publish:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Bootstrap digest-pinned tools
+        run: python3 tools/wasi/bootstrap.py
+      # Revalidate in this privileged job so the image is built from the exact
+      # module that passed WASI acceptance immediately before publication.
+      - name: Build and fully validate the command module
+        env:
+          STRESS: '1'
+        run: sh tools/wasi/verify.sh
+      - name: Verify the WebAssembly module identity
+        run: |
+          set -eu
+          test "$(head -c 8 build-wasi/src/inspircd.wasm | od -An -t x1 | tr -d ' \n')" = 0061736d01000000
+          sha256sum build-wasi/src/inspircd.wasm | tee build-wasi/inspircd.wasm.sha256
       - name: Publish immutable OCI artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         id: publish
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
@@ -53,7 +91,6 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/inspircd:${{ github.sha }}
       - name: Make this package public
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
@@ -64,19 +101,9 @@ jobs:
               visibility: 'public',
             });
       - name: Record immutable image digest
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           set -eu
           test -n '${{ steps.publish.outputs.digest }}'
           printf 'image=ghcr.io/%s/inspircd@%s\n' '${{ github.repository_owner }}' '${{ steps.publish.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
           printf 'wasm_sha256=' >> "$GITHUB_STEP_SUMMARY"
           cat build-wasi/inspircd.wasm.sha256 >> "$GITHUB_STEP_SUMMARY"
-      - name: Retain deployable artifact evidence
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: inspircd-wasi-oci
-          path: |
-            /tmp/inspircd-wasi.oci.tar
-            build-wasi/inspircd.wasm.sha256
-          retention-days: 7
