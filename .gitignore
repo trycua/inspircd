@@ -11,6 +11,9 @@
 /vgcore.*
 
 /build
+/build-wasi
+/.wasi-tools
+/tools/wasi/__pycache__/
 /docs/doxygen
 /run
 /src/modules

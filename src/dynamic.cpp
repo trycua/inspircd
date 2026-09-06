@@ -1,3 +1,6 @@
+#ifdef __wasi__
+#include "wasi/dynamic.inc"
+#else
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
@@ -124,3 +127,5 @@ void DLLManager::RetrieveLastError()
 	for (size_t pos = 0; ((pos = err.find_first_of("\r\n", pos)) != std::string::npos); )
 		err[pos] = ' ';
 }
+
+#endif

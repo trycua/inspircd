@@ -1,0 +1,70 @@
+name: WASI port gates
+on:
+  push:
+    branches: [master, 'wasi/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wasi:
+    if: github.repository == 'trycua/inspircd'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Bootstrap digest-pinned tools
+        run: python3 tools/wasi/bootstrap.py
+      - name: Build and validate actual WasmEdge process
+        env:
+          STRESS: '1'
+        run: sh tools/wasi/verify.sh
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wasi-evidence
+          path: |
+            build-wasi/*.log
+            build-wasi/*.json
+          retention-days: 7
+
+  native:
+    if: github.repository == 'trycua/inspircd'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        socket-engine: [poll, epoll]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Configure native regression build
+        run: >-
+          cmake -S . -B build-native -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug -DDISABLE_OWNERSHIP=ON
+          -DAUTO_ENABLE_EXTRAS=OFF
+          -DSOCKET_ENGINE=${{ matrix.socket-engine }}
+          -DCMAKE_INSTALL_PREFIX="$PWD/build-native/install"
+      - name: Build and install without privilege
+        run: cmake --build build-native -j 2 && cmake --install build-native
+      - name: Native two-client and resource regressions
+        run: BUILD="$PWD/build-wasi/native" NATIVE_PREFIX="$PWD/build-native/install" STRESS=1 python3 tools/wasi/test.py
+      - name: Native casemap alignment regression with UBSan
+        run: |
+          c++ -g -std=c++20 -ffunction-sections -fdata-sections \
+            -fsanitize=undefined -fno-sanitize-recover=undefined \
+            -Iinclude -Isrc -Ibuild-native/include -Ivendor \
+            tools/wasi/check-casemap.cpp -Wl,--gc-sections -o build-native/check-casemap
+          timeout 30 build-native/check-casemap
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-${{ matrix.socket-engine }}-evidence
+          path: |
+            build-wasi/native/*.log
+            build-wasi/native/*.json
+          retention-days: 7

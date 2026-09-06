@@ -54,7 +54,12 @@ namespace irc
 			struct sockaddr sa;
 			struct sockaddr_in in4;
 			struct sockaddr_in6 in6;
+#ifdef __wasi__
+			// Retain address storage for shared code; the WASI adapter rejects AF_UNIX.
+			struct { sa_family_t sun_family; char sun_path[108]; } un;
+#else
 			struct sockaddr_un un;
+#endif
 
 			/** Initializes this sockaddrs optionally as an unspecified socket address. */
 			explicit sockaddrs(bool initialize = true);

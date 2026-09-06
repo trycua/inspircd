@@ -31,6 +31,10 @@ list(PREPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/src/cmake")
 include("inspircd")
 include("version")
 
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+	include("wasi")
+endif()
+
 # Require C++20 for all targets.
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
@@ -270,7 +274,9 @@ add_subdirectory("include")
 add_subdirectory("src")
 
 # Modules that can be loaded by the core.
-add_subdirectory("modules")
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
+	add_subdirectory("modules")
+endif()
 
 # Miscellaneous data files.
 add_subdirectory("docs")

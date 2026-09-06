@@ -39,7 +39,11 @@
 
 /** Reference table, contains all current handlers
  **/
+#ifdef __wasi__
+std::unordered_map<int, EventHandler*> SocketEngine::ref;
+#else
 std::vector<EventHandler*> SocketEngine::ref;
+#endif
 
 /** Current number of descriptors in the engine
  */
@@ -76,7 +80,9 @@ void SocketEngine::InitError()
 
 void SocketEngine::LookupMaxFds()
 {
-#if defined _WIN32
+#if defined __wasi__
+	MaxSetSize = 1024;
+#elif defined _WIN32
 	MaxSetSize = FD_SETSIZE;
 #else
 	struct rlimit limits;
@@ -140,11 +146,18 @@ void SocketEngine::DispatchTrialWrites()
 bool SocketEngine::AddFdRef(EventHandler* eh)
 {
 	int fd = eh->GetFd();
+#ifdef __wasi__
+	// Sparse descriptor values are not a capacity bound; count live handlers.
+	if (fd < 0 || CurrentSetSize >= MaxSetSize)
+		return false;
+#endif
 	if (HasFd(fd))
 		return false;
 
+#ifndef __wasi__
 	while (static_cast<unsigned int>(fd) >= ref.size())
 		ref.resize(ref.empty() ? 1 : (ref.size() * 2));
+#endif
 	ref[fd] = eh;
 	CurrentSetSize++;
 	return true;
@@ -155,7 +168,11 @@ void SocketEngine::DelFdRef(EventHandler* eh)
 	int fd = eh->GetFd();
 	if (GetRef(fd) == eh)
 	{
+#ifdef __wasi__
+		ref.erase(fd);
+#else
 		ref[fd] = nullptr;
+#endif
 		CurrentSetSize--;
 	}
 }
@@ -167,14 +184,30 @@ bool SocketEngine::HasFd(int fd)
 
 EventHandler* SocketEngine::GetRef(int fd)
 {
+#ifdef __wasi__
+	auto it = ref.find(fd);
+	return it == ref.end() ? nullptr : it->second;
+#else
 	if (fd < 0 || static_cast<size_t>(fd) >= ref.size())
 		return nullptr;
 	return ref[fd];
+#endif
 }
 
 int SocketEngine::Accept(EventHandler* eh, sockaddr* addr, socklen_t* addrlen)
 {
+#ifdef __wasi__
+	int fd = accept(eh->GetFd(), addr, addrlen);
+	if (fd >= 0 && CurrentSetSize >= MaxSetSize)
+	{
+		close(fd);
+		errno = EMFILE;
+		return -1;
+	}
+	return fd;
+#else
 	return accept(eh->GetFd(), addr, addrlen);
+#endif
 }
 
 int SocketEngine::Close(EventHandler* eh)
@@ -218,9 +251,14 @@ int SocketEngine::NonBlocking(int fd)
 
 ssize_t SocketEngine::RecvFrom(EventHandler* eh, void* buf, size_t len, int flags, sockaddr* from, socklen_t* fromlen)
 {
+#ifdef __wasi__
+	errno = ENOTSUP;
+	return -1;
+#else
 	ssize_t nbRecvd = recvfrom(eh->GetFd(), static_cast<char*>(buf), len, flags, from, fromlen);
 	stats.UpdateReadCounters(nbRecvd);
 	return nbRecvd;
+#endif
 }
 
 ssize_t SocketEngine::Send(EventHandler* eh, const void* buf, size_t len, int flags)
@@ -239,9 +277,14 @@ ssize_t SocketEngine::Recv(EventHandler* eh, void* buf, size_t len, int flags)
 
 ssize_t SocketEngine::SendTo(EventHandler* eh, const void* buf, size_t len, int flags, const irc::sockets::sockaddrs& address)
 {
+#ifdef __wasi__
+	errno = ENOTSUP;
+	return -1;
+#else
 	ssize_t nbSent = sendto(eh->GetFd(), static_cast<const char*>(buf), len, flags, &address.sa, address.sa_size());
 	stats.UpdateWriteCounters(nbSent);
 	return nbSent;
+#endif
 }
 
 ssize_t SocketEngine::WriteV(EventHandler* eh, const IOVector* iov, int count)

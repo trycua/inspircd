@@ -22,7 +22,9 @@ endif()
 
 # Even though we are using <thread> we still need to link against pthreads.
 set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package("Threads" REQUIRED)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
+	find_package("Threads" REQUIRED)
+endif()
 
 # Find our source files.
 file(GLOB CORE_SOURCES CONFIGURE_DEPENDS "*.cpp")
@@ -65,7 +67,7 @@ target_link_libraries("inspircd" PUBLIC
 	"vendored_fmt"
 	"$<$<BOOL:${WIN32}>:win32compat>"
 	${CMAKE_DL_LIBS}
-	Threads::Threads
+	$<$<NOT:$<PLATFORM_ID:WASI>>:Threads::Threads>
 )
 set_target_properties("inspircd" PROPERTIES
 	ENABLE_EXPORTS ON
@@ -74,6 +76,10 @@ install_owned(
 	TARGETS "inspircd"
 	DESTINATION "${BINARY_DIR}"
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+	include("wasi-modules")
+endif()
 
 add_subdirectory("scripts")
 if(WIN32)

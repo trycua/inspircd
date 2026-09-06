@@ -27,6 +27,7 @@
 
 
 #include <filesystem>
+#include <sstream>
 #ifndef _WIN32
 # include <unistd.h>
 #endif
@@ -381,6 +382,15 @@ void ServerConfig::Fill()
 
 	// Read the <security> config.
 	const auto& security = ConfValue("security");
+#ifdef __wasi__
+	if (!security->getString("runasuser").empty() || !security->getString("runasgroup").empty())
+		throw CoreException("WASI cannot drop privileges; configure an unprivileged host runtime instead");
+	for (const auto& [_, bind] : ConfTags("bind"))
+	{
+		if (!bind->getString("sslprofile").empty() || !bind->getString("hook").empty())
+			throw CoreException("WASI does not support TLS profiles or connection hooks; use a private backend with external TLS termination");
+	}
+#endif
 	BanRealMask = security->getBool("banrealmask", true);
 	HideServer = security->getString("hideserver", {}, InspIRCd::IsFQDN);
 	XLineQuitPublic = security->getString("publicxlinequit");

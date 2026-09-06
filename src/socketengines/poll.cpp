@@ -38,7 +38,20 @@ namespace
 	std::vector<struct pollfd> events(16);
 	/** This vector maps fds to an index in the events array.
 	 */
+#ifdef __wasi__
+	// WasmEdge assigns sparse descriptors; never allocate by descriptor value.
+	std::unordered_map<int, int> fd_mappings;
+#else
 	std::vector<int> fd_mappings(16, -1);
+#endif
+	bool HasMapping(int fd)
+	{
+#ifdef __wasi__
+		return fd_mappings.contains(fd);
+#else
+		return static_cast<unsigned int>(fd) < fd_mappings.size() && fd_mappings[fd] != -1;
+#endif
+	}
 }
 
 void SocketEngine::Init()
@@ -73,7 +86,7 @@ bool SocketEngine::AddFd(EventHandler* eh, int event_mask)
 		return false;
 	}
 
-	if (static_cast<unsigned int>(fd) < fd_mappings.size() && fd_mappings[fd] != -1)
+	if (HasMapping(fd))
 	{
 		ServerInstance->Logs.Debug("SOCKET", "Attempt to add duplicate fd: {}", fd);
 		return false;
@@ -86,9 +99,10 @@ bool SocketEngine::AddFd(EventHandler* eh, int event_mask)
 		ServerInstance->Logs.Debug("SOCKET", "Attempt to add duplicate fd: {}", fd);
 		return false;
 	}
-
+#ifndef __wasi__
 	while (static_cast<unsigned int>(fd) >= fd_mappings.size())
 		fd_mappings.resize(fd_mappings.size() * 2, -1);
+#endif
 	fd_mappings[fd] = index;
 
 	ResizeDouble(events);
@@ -103,7 +117,7 @@ bool SocketEngine::AddFd(EventHandler* eh, int event_mask)
 void SocketEngine::OnSetEvent(EventHandler* eh, int old_mask, int new_mask)
 {
 	int fd = eh->GetFd();
-	if (!eh->HasFd() || static_cast<unsigned int>(fd) >= fd_mappings.size() || fd_mappings[fd] == -1)
+	if (!eh->HasFd() || !HasMapping(fd))
 	{
 		ServerInstance->Logs.Debug("SOCKET", "SetEvents() on unknown fd: {}", eh->GetFd());
 		return;
@@ -121,7 +135,7 @@ void SocketEngine::DelFd(EventHandler* eh)
 		return;
 	}
 
-	if (static_cast<unsigned int>(fd) >= fd_mappings.size() || fd_mappings[fd] == -1)
+	if (!HasMapping(fd))
 	{
 		ServerInstance->Logs.Debug("SOCKET", "DelFd() on unknown fd: {}", fd);
 		return;
@@ -145,7 +159,11 @@ void SocketEngine::DelFd(EventHandler* eh)
 
 	// Now remove all data for the last fd we got into out list.
 	// Above code made sure this always is right
+#ifdef __wasi__
+	fd_mappings.erase(fd);
+#else
 	fd_mappings[fd] = -1;
+#endif
 	events[last_index].fd = 0;
 	events[last_index].events = 0;
 
@@ -184,11 +202,16 @@ int SocketEngine::DispatchEvents()
 
 		if (revents & POLLERR)
 		{
+#ifdef __wasi__
+			// Preview 1 has no SO_ERROR query; preserve the poll failure as EIO.
+			int errcode = EIO;
+#else
 			// Get error number
 			socklen_t codesize = sizeof(int);
 			int errcode;
 			if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &errcode, &codesize) < 0)
 				errcode = errno;
+#endif
 			eh->OnEventHandlerError(errcode);
 			continue;
 		}

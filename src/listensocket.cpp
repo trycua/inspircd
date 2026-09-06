@@ -69,7 +69,7 @@ namespace
 	// Allows binding to an IP address which is not available yet.
 	int SetFreeBind(ListenSocket* ls)
 	{
-#if defined IP_FREEBIND // Linux 2.4+
+#if defined IP_FREEBIND && !defined(__wasi__) // Linux 2.4+
 		return SocketEngine::SetOption<int>(ls, SOL_IP, IP_FREEBIND, 1);
 #elif defined IP_BINDANY // FreeBSD
 		return SocketEngine::SetOption<int>(ls, IPPROTO_IP, IP_BINDANY, 1);
@@ -128,7 +128,9 @@ ListenSocket::ListenSocket(const std::shared_ptr<ConfigTag>& tag, const irc::soc
 	// Its okay if these fails.
 	if (bind_to.family() == AF_INET6)
 		SetIPv6Only(this);
+#ifdef SO_REUSEADDR
 	SocketEngine::SetOption<int>(this, SOL_SOCKET, SO_REUSEADDR, 1);
+#endif
 
 	int rv = 0;
 	if (bind_to.is_ip() && tag->getBool("free"))
@@ -168,7 +170,17 @@ ListenSocket::ListenSocket(const std::shared_ptr<ConfigTag>& tag, const irc::soc
 	else
 	{
 		SocketEngine::NonBlocking(GetFd());
+#ifdef __wasi__
+		if (!SocketEngine::AddFd(this, FD_WANT_POLL_READ | FD_WANT_NO_WRITE))
+		{
+			SocketEngine::Close(GetFd());
+			SetFd(-1);
+			errno = EMFILE;
+			return;
+		}
+#else
 		SocketEngine::AddFd(this, FD_WANT_POLL_READ | FD_WANT_NO_WRITE);
+#endif
 
 		this->ResetIOHookProvider();
 	}

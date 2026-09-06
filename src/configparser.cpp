@@ -448,12 +448,16 @@ insp::file_ptr ParseStack::DoOpenFile(const std::string& name, bool isexec)
 	if (isexec)
 	{
 		ServerInstance->Logs.Debug("CONFIG", "Opening executable: {}", name);
+#ifdef __wasi__
+		throw CoreException("Executable config includes are unavailable on WASI");
+#else
 		return insp::file_ptr(popen(name.c_str(), "r"), pclose);
+#endif
 	}
 
 	const std::string path = ServerInstance->Config->Paths.PrependConfig(name);
 	ServerInstance->Logs.Debug("CONFIG", "Opening file: {}", path);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 	struct stat pathinfo;
 	if (stat(path.c_str(), &pathinfo) == 0)
 	{

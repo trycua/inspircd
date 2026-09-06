@@ -39,14 +39,13 @@
 #include "inspircd.h"
 #include "timeutils.h"
 #include "xline.h"
-
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 # include <fcntl.h>
 # include <grp.h>
 # include <pwd.h>
 # include <sys/resource.h>
 # include <unistd.h>
-#else
+#elif defined(_WIN32)
 # define STDIN_FILENO 0
 # define STDOUT_FILENO 1
 # define STDERR_FILENO 2
@@ -63,7 +62,7 @@ namespace
 	// Warns a user running as root that they probably shouldn't.
 	void CheckRoot()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		if (getegid() != 0 && geteuid() != 0)
 			return;
 
@@ -95,7 +94,7 @@ namespace
 	// Collects performance statistics for the STATS command.
 	void CollectStats()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		static rusage ru;
 		if (getrusage(RUSAGE_SELF, &ru) == -1)
 			return; // Should never happen.
@@ -103,7 +102,7 @@ namespace
 		ServerInstance->Stats.LastSampled.tv_sec = ServerInstance->Time();
 		ServerInstance->Stats.LastSampled.tv_nsec = ServerInstance->Time_ns();
 		ServerInstance->Stats.LastCPU = ru.ru_utime;
-#else
+#elif defined(_WIN32)
 		if (!QueryPerformanceCounter(&ServerInstance->Stats.LastCPU))
 			return; // Should never happen.
 
@@ -142,7 +141,7 @@ namespace
 	// Drops to the unprivileged user/group specified in <security:runas{user,group}>.
 	void DropRoot()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		const auto& security = ServerInstance->Config->ConfValue("security");
 
 		const std::string SetGroup = security->getString("runasgroup");
@@ -207,7 +206,7 @@ namespace
 	// Attempts to fork into the background.
 	void ForkIntoBackground()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		// We use VoidSignalHandler whilst forking to avoid breaking daemon scripts
 		// if the parent process exits with SIGTERM (15) instead of EXIT_SUCCESS (0).
 		signal(SIGTERM, VoidSignalHandler);
@@ -241,7 +240,7 @@ namespace
 	// Increase the size of a core dump file to improve debugging problems.
 	void IncreaseCoreDumpSize()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		errno = 0;
 		rlimit rl;
 		if (getrlimit(RLIMIT_CORE, &rl) == -1)
@@ -319,6 +318,9 @@ namespace
 			ServerInstance->ConfigFileName = ExpandPath(config.c_str());
 		ServerInstance->CommandLine.forcedebug = do_debug || do_protocoldebug;
 		ServerInstance->CommandLine.forceprotodebug = do_protocoldebug;
+#ifdef __wasi__
+		do_nofork = true;
+#endif
 		ServerInstance->CommandLine.nofork = ServerInstance->CommandLine.forcedebug || do_nofork;
 		ServerInstance->CommandLine.runasroot = do_runasroot;
 		ServerInstance->CommandLine.writelog = !do_nolog;
@@ -328,7 +330,7 @@ namespace
 	// Sets handlers for various process signals.
 	void SetSignals()
 	{
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 		signal(SIGALRM, SIG_IGN);
 		signal(SIGCHLD, SIG_IGN);
 		signal(SIGHUP, InspIRCd::SetSignal);
@@ -341,7 +343,9 @@ namespace
 		for (auto rtsig = SIGRTMIN; rtsig <= SIGRTMAX; ++rtsig)
 			signal(rtsig, SIG_IGN);
 #endif
+#ifndef __wasi__
 		signal(SIGTERM, InspIRCd::SetSignal);
+#endif
 	}
 
 	void TryBindPorts()
@@ -451,6 +455,9 @@ void InspIRCd::Exit(int status, const std::string& reason, const std::string& lo
 
 std::string InspIRCd::Restart(const std::string& reason, const std::string& logtype)
 {
+#ifdef __wasi__
+	return "WASI cannot replace a process; restart WasmEdge from the host";
+#else
 	// Tell modules that we're restarting.
 	const auto quitmsg = reason.empty() ? "Server restarting" : reason;
 	FOREACH_MOD(OnShutdown, (quitmsg, true));
@@ -500,6 +507,7 @@ std::string InspIRCd::Restart(const std::string& reason, const std::string& logt
 	}
 
 	return error;
+#endif
 }
 
 void InspIRCd::WritePID()
@@ -529,6 +537,11 @@ InspIRCd::InspIRCd(int argc, char** argv)
 	: StartTime(time(NULL))
 {
 	ServerInstance = this;
+#ifdef __wasi__
+	// Keep foreground diagnostics visible even when stdout is a host pipe.
+	setvbuf(stdout, nullptr, _IONBF, 0);
+	setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
 
 	UpdateTime();
 	IncreaseCoreDumpSize();
@@ -629,8 +642,7 @@ InspIRCd::InspIRCd(int argc, char** argv)
 
 	fmt::println("{} [PID {}] is now running as {} [{}] with {} max open sockets",
 		INSPIRCD_VERSION, getpid(), Config->ServerName, Config->ServerId, SocketEngine::GetMaxFds());
-
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 	if (!CommandLine.nofork)
 	{
 		if (kill(getppid(), SIGTERM) == -1)
@@ -673,7 +685,7 @@ InspIRCd::InspIRCd(int argc, char** argv)
 
 		Logs.Normal("STARTUP", "Keeping pseudo-tty open as we are running in the foreground.");
 	}
-#else
+#elif defined(_WIN32)
 	/* Set win32 service as running, if we are running as a service */
 	SetServiceRunning();
 

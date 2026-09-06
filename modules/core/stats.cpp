@@ -262,7 +262,7 @@ void CommandStats::DoStats(Stats::Context& stats)
 			stats.AddRow(249, FMT::format("Bandwidth out:    {}/sec", insp::binary_suffix(bitpersec_out, true)));
 			stats.AddRow(249, FMT::format("Bandwidth in:     {}/sec", insp::binary_suffix(bitpersec_in, true)));
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 			/* Moved this down here so all the not-windows stuff (look w00tie, I didn't say win32!) is in one ifndef.
 			 * Also cuts out some identical code in both branches of the ifndef. -- Om
 			 */
@@ -291,7 +291,7 @@ void CommandStats::DoStats(Stats::Context& stats)
 
 				stats.AddRow(249, FMT::format("CPU Use (total):  {:03.5}%", per));
 			}
-#else
+#elif defined(_WIN32)
 			PROCESS_MEMORY_COUNTERS MemCounters;
 			if (GetProcessMemoryInfo(GetCurrentProcess(), &MemCounters, sizeof(MemCounters)))
 			{

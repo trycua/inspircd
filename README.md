@@ -1,5 +1,10 @@
 ## Important Notice
 
+This fork contains an experimental WASI/WasmEdge port. See
+[the port guide](tools/wasi/README.md) for reproducible builds, validation, and
+release gates. It is not endorsed by upstream and is not production-qualified.
+The upstream project description and licensing are retained below.
+
 The `master` branch contains the latest unstable development code. If you are running a server then you probably want to use a v4 release for now. You can obtain this from [the releases page](https://github.com/inspircd/inspircd/releases/latest) or by running `git checkout $(git describe --abbrev=0 --tags insp4)` if you are installing from Git.
 
 ## About

@@ -55,12 +55,16 @@ static uint64_t MurmurHash64A(const void* key, int len, uint64_t seed)
 
 	uint64_t h = seed ^ (len * m);
 
-	const uint64_t* data = (const uint64_t*)key;
-	const uint64_t* end = data + (len / 8);
+	const auto* data = static_cast<const unsigned char*>(key);
 
-	while (data != end)
+	while (len >= 8)
 	{
-		uint64_t k = insp::map_case(*data++);
+		// String views need not be word-aligned; retain native byte order.
+		uint64_t k;
+		memcpy(&k, data, sizeof(k));
+		data += sizeof(k);
+		len -= sizeof(k);
+		k = insp::map_case(k);
 
 		k *= m;
 		k ^= k >> r;
@@ -125,7 +129,9 @@ static uint32_t MurmurHash2A(const void * key, int len, uint32_t seed)
 
 	while(len >= 4)
 	{
-		uint32_t k = insp::map_case(*(uint32_t*)data);
+		uint32_t k;
+		memcpy(&k, data, sizeof(k));
+		k = insp::map_case(k);
 
 		mmix(h, k);
 

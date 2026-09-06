@@ -27,6 +27,9 @@
 
 #include "inspircd.h"
 #include "dynamic.h"
+#ifdef __wasi__
+#include "wasi/static.h"
+#endif
 
 bool ModuleManager::Load(const std::string& modname, bool defer)
 {
@@ -39,7 +42,7 @@ bool ModuleManager::Load(const std::string& modname, bool defer)
 
 	const std::string filename = ExpandModName(modname);
 	const std::string moduleFile = ServerInstance->Config->Paths.PrependModule(filename);
-
+#ifndef __wasi__
 	std::error_code ec;
 	if (!std::filesystem::is_regular_file(moduleFile, ec))
 	{
@@ -47,7 +50,7 @@ bool ModuleManager::Load(const std::string& modname, bool defer)
 		ServerInstance->Logs.Critical("MODULE", LastModuleError);
 		return false;
 	}
-
+#endif
 	if (Modules.find(filename) != Modules.end())
 	{
 		LastModuleError = "Module " + filename + " is already loaded, cannot load a module twice!";
@@ -129,6 +132,10 @@ void ModuleManager::LoadCoreModules(std::map<std::string, Service::List>& servic
 {
 	try
 	{
+#ifdef __wasi__
+		for (const auto& [name, factory] : WasiStaticModules())
+		{
+#else
 		for (const auto& entry : std::filesystem::directory_iterator(ServerInstance->Config->Paths.Module))
 		{
 			if (!entry.is_regular_file())
@@ -137,7 +144,7 @@ void ModuleManager::LoadCoreModules(std::map<std::string, Service::List>& servic
 			const std::string name = entry.path().filename().string();
 			if (!InspIRCd::Match(name, "core_*" INSPIRCD_MODULE_EXT))
 				continue;
-
+#endif
 			fflush(stdout);
 			this->NewServices = &servicemap[name];
 

@@ -256,7 +256,11 @@ public:
 private:
 	/** Reference table, contains all current handlers
 	 **/
+#ifdef __wasi__
+	static std::unordered_map<int, EventHandler*> ref;
+#else
 	static std::vector<EventHandler*> ref;
+#endif
 
 	/** Current number of descriptors in the engine. */
 	static size_t CurrentSetSize;

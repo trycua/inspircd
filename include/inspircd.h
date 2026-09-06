@@ -27,6 +27,10 @@
 
 #pragma once
 
+#ifdef __wasi__
+# include "wasi/compat.h"
+#endif
+
 #include <cfloat>
 #include <climits>
 #include <csignal>

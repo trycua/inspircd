@@ -1,3 +1,9 @@
+#ifdef __wasi__
+#include "inspircd.h"
+// Only ConfigReaderThread is included in this single-threaded build.
+bool Thread::Start() { OnStart(); return true; }
+bool Thread::Stop() { OnStop(); return true; }
+#else
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
@@ -197,3 +203,5 @@ SocketThread::~SocketThread()
 		delete socket;
 	}
 }
+
+#endif
