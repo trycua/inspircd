@@ -70,7 +70,8 @@ jobs:
         run: |
           set -euxo pipefail
           sh tools/wasi/verify.sh
-          docker buildx build --file Dockerfile.wasi --output type=oci,name=local/inspircd:latest,dest=/tmp/inspircd-wasi.oci.tar .
+          docker buildx build --file Dockerfile.wasi --output type=oci,dest=/tmp/inspircd-wasi.oci.tar .
+          python3 tools/runtime/normalize_oci_reference.py /tmp/inspircd-wasi.oci.tar
           python3 - /tmp/inspircd-wasi.oci.tar <<'PY'
           import json
           import tarfile
@@ -80,7 +81,9 @@ jobs:
               index = json.load(archive.extractfile("index.json"))
           manifests = index["manifests"]
           assert len(manifests) == 1
-          assert manifests[0]["annotations"]["org.opencontainers.image.ref.name"] == "local/inspircd:latest"
+          annotations = manifests[0]["annotations"]
+          assert annotations["org.opencontainers.image.ref.name"] == "latest"
+          assert "io.containerd.image.name" not in annotations
           PY
           test -x "$CANDIDATE"
           test -s /tmp/inspircd-wasi.oci.tar
@@ -97,7 +100,7 @@ jobs:
           sudo ln -sf libwasmedge.so.0.1.1 /usr/local/lib/libwasmedge.so.0
           sudo ldconfig
           sudo ctr version
-          sudo ctr images import /tmp/inspircd-wasi.oci.tar
+          sudo ctr images import --base-name local/inspircd /tmp/inspircd-wasi.oci.tar
           sudo ctr images list -q | grep -Fx local/inspircd:latest
       - name: Exercise OCI lifecycle, invalid configuration, and two IRC clients
         run: |
