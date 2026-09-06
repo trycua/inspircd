@@ -45,7 +45,7 @@ jobs:
       - name: Install the native protobuf compiler required by runwasi
         run: |
           sudo apt-get update
-          sudo apt-get install --yes protobuf-compiler
+          sudo apt-get install --yes protobuf-compiler libseccomp-dev
           protoc --version
       - name: Build dynamic shim against exactly the pinned RC
         env:
