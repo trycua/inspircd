@@ -20,7 +20,7 @@ def client(nick):
     sock.sendall(("NICK %s\r\nUSER %s 0 * :%s\r\n" % (nick, nick, nick)).encode())
     recv_until(sock, (" 001 %s " % nick).encode())
     sock.sendall(b"JOIN #wasmedge\r\n")
-    recv_until(sock, b"JOIN #wasmedge")
+    recv_until(sock, b"JOIN :#wasmedge")
     return sock
 
 
