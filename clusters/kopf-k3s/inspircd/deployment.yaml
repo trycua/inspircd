@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: inspircd-wasi
     app.kubernetes.io/part-of: inspircd-wasi-experiment
   annotations:
-    inspircd.trycua.ai/status: "disabled pending a verified WasmEdge 0.17.2-rc.1 handler and immutable OCI digest"
+    inspircd.trycua.ai/status: "disabled pending separately approved versioned runtime activation"
 spec:
   # Keep the rendered canary inert until the runtime and OCI digest gates pass.
   replicas: 0
@@ -20,15 +20,15 @@ spec:
         app.kubernetes.io/name: inspircd-wasi
         app.kubernetes.io/part-of: inspircd-wasi-experiment
     spec:
-      runtimeClassName: wasmedge-cua
+      runtimeClassName: wasmedge-inspircd-0-17-2-rc1
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: inspircd
-          # Replaced only with an OCI digest and matching WASM SHA-256.
-          image: registry.invalid/trycua/inspircd@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          # The deployment remains at zero replicas until its runtime gates pass.
+          image: ghcr.io/trycua/inspircd@sha256:2239672f9e721b2f61fedb1a0c229863c576e092010bd1444f69d6637598af9d
           imagePullPolicy: IfNotPresent
           args: ["--nofork", "--config", "/irc/inspircd.conf"]
           ports:
