@@ -12,6 +12,8 @@ on:
       - 'src/**'
       - 'tools/wasi/**'
       - 'tools/runtime/normalize_oci_reference.py'
+      - 'tools/runtime/verify_public_oci.py'
+      - 'tools/runtime/test_verify_public_oci.py'
   pull_request:
     paths:
       - 'Dockerfile.wasi'
@@ -22,6 +24,8 @@ on:
       - 'src/**'
       - 'tools/wasi/**'
       - 'tools/runtime/normalize_oci_reference.py'
+      - 'tools/runtime/verify_public_oci.py'
+      - 'tools/runtime/test_verify_public_oci.py'
   workflow_dispatch: {}
 
 permissions:
@@ -33,6 +37,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Test anonymous OCI verifier
+        run: python3 -m unittest discover -s tools/runtime -p 'test_verify_public_oci.py'
       - name: Bootstrap digest-pinned tools
         run: python3 tools/wasi/bootstrap.py
       # Publish only the exact module that passed the full local WASI suite.
@@ -108,10 +114,10 @@ jobs:
         run: |
           set -eu
           test -n '${{ steps.publish.outputs.digest }}'
-          printf 'image=ghcr.io/%s/inspircd@%s\n' '${{ github.repository_owner }}' '${{ steps.publish.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          printf 'image=ghcr.io/%s/inspircd@%s\n' '${{ github.repository_owner }}' '${{ steps.publish.outputs.digest }}' | tee build-wasi/published-image.txt >> "$GITHUB_STEP_SUMMARY"
           printf 'wasm_sha256=' >> "$GITHUB_STEP_SUMMARY"
           cat build-wasi/inspircd.wasm.sha256 >> "$GITHUB_STEP_SUMMARY"
-      - name: Verify public package metadata and anonymous OCI access
+      - name: Verify public package metadata
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
@@ -123,42 +129,19 @@ jobs:
             if (response.data.visibility !== 'public') {
               core.setFailed(`expected public package visibility, got ${response.data.visibility}`);
             }
-      - name: Verify anonymous OCI manifest access
+      - name: Verify anonymous OCI graph and content hashes
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/inspircd
           DIGEST: ${{ steps.publish.outputs.digest }}
-        run: |
-          set -eu
-          python3 - <<'PY'
-          import json
-          import os
-          import urllib.parse
-          import urllib.request
-
-          image = os.environ["IMAGE"]
-          digest = os.environ["DIGEST"]
-          repository = image.removeprefix("ghcr.io/")
-          manifest_url = f"https://ghcr.io/v2/{repository}/manifests/{digest}"
-          request = urllib.request.Request(manifest_url, headers={"Accept": "application/vnd.oci.image.index.v1+json"})
-          try:
-              urllib.request.urlopen(request)
-          except urllib.error.HTTPError as error:
-              if error.code != 401:
-                  raise
-              challenge = error.headers["WWW-Authenticate"]
-          else:
-              raise SystemExit("registry did not issue the expected Bearer challenge")
-          parameters = dict(item.split("=", 1) for item in challenge.removeprefix("Bearer ").split(", "))
-          token_url = parameters["realm"].strip('"') + "?" + urllib.parse.urlencode({
-              "service": parameters["service"].strip('"'),
-              "scope": parameters["scope"].strip('"'),
-          })
-          with urllib.request.urlopen(token_url) as response:
-              token = json.load(response)["token"]
-          authenticated = urllib.request.Request(manifest_url, headers={
-              "Accept": "application/vnd.oci.image.index.v1+json",
-              "Authorization": f"Bearer {token}",
-          })
-          with urllib.request.urlopen(authenticated) as response:
-              assert response.status == 200
-          PY
+        run: python3 tools/runtime/verify_public_oci.py "$IMAGE" "$DIGEST" | tee build-wasi/public-oci-verification.json
+      - name: Retain publication identity even if access verification fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspircd-publication-evidence
+          path: |
+            build-wasi/published-image.txt
+            build-wasi/inspircd.wasm.sha256
+            build-wasi/public-oci-verification.json
+          if-no-files-found: warn
+          retention-days: 30
