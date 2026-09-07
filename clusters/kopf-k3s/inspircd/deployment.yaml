@@ -7,10 +7,12 @@ metadata:
     app.kubernetes.io/name: inspircd-wasi
     app.kubernetes.io/part-of: inspircd-wasi-experiment
   annotations:
-    inspircd.trycua.ai/status: "disabled pending separately approved versioned runtime activation"
+    inspircd.trycua.ai/status: "internal loopback-only canary; validate IRC through port-forward"
 spec:
-  # Keep the rendered canary inert until the runtime and OCI digest gates pass.
-  replicas: 0
+  replicas: 1
+  minReadySeconds: 30
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: inspircd-wasi
@@ -27,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: inspircd
-          # The deployment remains at zero replicas until its runtime gates pass.
+          # Immutable artifact qualified against the dedicated handler.
           image: ghcr.io/trycua/inspircd@sha256:2239672f9e721b2f61fedb1a0c229863c576e092010bd1444f69d6637598af9d
           imagePullPolicy: IfNotPresent
           args: ["--nofork", "--config", "/irc/inspircd.conf"]
