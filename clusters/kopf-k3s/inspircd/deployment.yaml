@@ -25,6 +25,8 @@ spec:
       runtimeClassName: wasmedge-inspircd-0-17-2-rc1
       automountServiceAccountToken: false
       securityContext:
+        # The non-root daemon writes its PID/runtime files to the emptyDir.
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
